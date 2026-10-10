@@ -114,3 +114,14 @@ docker compose -f test-manager-library-3413974-infra/docker-compose.yml up -d --
 ```bash
 docker compose -f test-manager-library-3413974-infra/docker-compose.yml exec api php artisan test
 ```
+
+La suite incluye 19 pruebas y 103 aserciones (100% pasando en verde):
+* **`Tests\Unit\DomainValueObjectsTest` (T-03, T-04, T-05, T-06):** Invariantes de objetos de valor y dominio (ISBN-13 numérico, cantidades mayores o iguales a 1, rango de ejemplares disponibles 0 a total, rangos de fechas válidos, normalización de nombres de usuario a minúsculas y recortados, plazo reglamentario de préstamo a 14 días y unicidad de líneas).
+* **`Tests\Feature\LibraryContractTest` (T-01, T-07 a T-16):** Pruebas de contrato HTTP que recorren todas las rutas y códigos de negocio:
+  * `401 INVALID_CREDENTIALS` (login erróneo sin delatar, rutas sin token).
+  * `403 FORBIDDEN_ROLE` (acceso con rol insuficiente, intento de eliminar un admin).
+  * `404 NOT_FOUND` (recursos inexistentes o dados de baja).
+  * `409 CONFLICT` (`ISBN_TAKEN`, `DOCUMENT_TAKEN`, `FORBIDDEN_OPERATION` en bibliotecarios con historial).
+  * `422 VALIDATION_ERROR` (`DUPLICATE_BOOK_IN_LOAN`, `INVALID_DATE_RANGE`, datos incompletos).
+  * `200 / 201 / 204` (salud, login, categorías, paginación, catálogo, reportes y ciclo de bibliotecarios).
+* **`Tests\Feature\ExampleTest` (T-01):** Verificación de endpoint `/health`.

@@ -14,7 +14,7 @@ WORKDIR /var/www/html
 COPY composer.json ./
 
 RUN composer config policy.advisories.block false \
-    && composer install --no-dev --no-scripts --no-interaction --prefer-dist
+    && composer install --no-scripts --no-interaction --prefer-dist
 
 COPY . .
 

@@ -21,6 +21,9 @@ done
 
 echo "Base de datos conectada correctamente."
 
+# Asegurar existencia de archivo .env para compatibilidad con helpers de Laravel
+[ -f .env ] || cp .env.example .env 2>/dev/null || touch .env
+
 echo "Ejecutando migraciones de Laravel (Art. V & ADR-001)..."
 php artisan migrate --force
 
