@@ -46,13 +46,15 @@ Route::middleware(['jwt.auth'])->group(function () {
     // Rutas exclusivas para Administrador ('admin')
     Route::middleware(['role:admin'])->group(function () {
         // Usuarios / Bibliotecarios
+        Route::get('/users', [UserController::class, 'index']);
         Route::post('/users', [UserController::class, 'store']);
+        Route::delete('/users/{id}', [UserController::class, 'destroy']);
 
         // Gestión de Libros
         Route::post('/books', [BookController::class, 'store']);
         Route::put('/books/{id}', [BookController::class, 'update']);
         Route::delete('/books/{id}', [BookController::class, 'destroy']);
-        Route::put('/books/{id}/cover', [BookController::class, 'uploadCover']);
+        Route::match(['PUT', 'POST'], '/books/{id}/cover', [BookController::class, 'uploadCover']);
         Route::delete('/books/{id}/cover', [BookController::class, 'deleteCover']);
 
         // Reportes estadísticos

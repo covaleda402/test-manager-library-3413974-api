@@ -257,15 +257,16 @@ class BookController extends Controller
             );
         }
 
-        if (!$request->hasFile('file')) {
+        $file = $request->file('file');
+
+        if (!$file || !$file->isValid()) {
             throw new BusinessException(
                 'VALIDATION_ERROR',
                 'Se requiere un archivo en el campo file.',
-                422
+                422,
+                [['field' => 'file', 'issue' => 'archivo requerido']]
             );
         }
-
-        $file = $request->file('file');
 
         // Validar tamaño máx. 2 MB (CA-03.4)
         if ($file->getSize() > 2 * 1024 * 1024) {

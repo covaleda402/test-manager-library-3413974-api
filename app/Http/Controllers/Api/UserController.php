@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class UserController extends Controller
@@ -78,5 +79,51 @@ class UserController extends Controller
             'username' => $user->username,
             'role' => $user->role,
         ], 201);
+    }
+
+    public function index(): JsonResponse
+    {
+        $users = User::where('role', 'librarian')
+            ->orderBy('username', 'asc')
+            ->get(['id', 'username', 'role']);
+
+        return response()->json([
+            'items' => $users,
+        ]);
+    }
+
+    public function destroy(string $id): JsonResponse
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            throw new BusinessException(
+                'NOT_FOUND',
+                'El usuario solicitado no existe.',
+                404
+            );
+        }
+
+        if ($user->role === 'admin') {
+            throw new BusinessException(
+                'FORBIDDEN_ROLE',
+                'No está permitido eliminar a un administrador.',
+                403
+            );
+        }
+
+        // Verificar si tiene préstamos registrados en el histórico
+        $hasLoans = DB::table('library.loan')->where('loaned_by_user_id', $user->id)->exists();
+        if ($hasLoans) {
+            throw new BusinessException(
+                'FORBIDDEN_OPERATION',
+                "El bibliotecario «{$user->username}» tiene préstamos registrados en el histórico y no puede ser eliminado.",
+                409
+            );
+        }
+
+        $user->delete();
+
+        return response()->json([], 204);
     }
 }

@@ -21,6 +21,12 @@ class LoanController extends Controller
         return [
             'id' => $loan->id,
             'member_id' => $loan->member_id,
+            'member_name' => $loan->member->full_name ?? null,
+            'member' => $loan->member ? [
+                'id' => $loan->member->id,
+                'full_name' => $loan->member->full_name,
+                'document_number' => $loan->member->document_number,
+            ] : null,
             'loaned_at' => $loan->loaned_at->toISOString(),
             'status' => $loan->calculated_status,
             'items' => $loan->items->map(function ($item) {
@@ -82,7 +88,7 @@ class LoanController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $loan = Loan::with('items')->find($id);
+        $loan = Loan::with(['items', 'member'])->find($id);
 
         if (!$loan) {
             throw new BusinessException(
@@ -227,7 +233,7 @@ class LoanController extends Controller
             return $loanRecord;
         });
 
-        $loan->load('items');
+        $loan->load(['items', 'member']);
 
         return response()->json($this->formatLoan($loan), 201);
     }
