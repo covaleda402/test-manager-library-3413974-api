@@ -1,51 +1,116 @@
-# test-manager-library-3413974-api
+# Manager Library — Backend API (Laravel 11)
 
-> **Prueba técnica · Ficha ADSO 3413974**
-> Horario: de **9:15 a. m. a 3:00 p. m.** (15:00). Después, **feria de presentación** de cada proyecto.
+> **Prueba técnica · Ficha ADSO 3413974**  
+> Backend del sistema de gestión bibliotecaria desarrollado en **PHP 8.2** con **Laravel 11**, bajo el enfoque **Spec-Driven Development (SDD)** sobre **PostgreSQL 16**.
 
-Este repositorio es el **backend** de *Manager Library*, en **PHP con Laravel**. **Empieza vacío a propósito**: se construye en el fork de cada aprendiz.
+---
 
-## Instrucciones
+## 1. Arquitectura y Principios de Diseño
 
-Cada aprendiz debe **crear el fork** de los seis repositorios del proyecto y **resolver el proyecto
-con el spec planteado**.
+El backend implementa los principios innegociables de la constitución del proyecto y adapta los patrones de **Arquitectura Hexagonal (Puertos y Adaptadores)** al ecosistema de Laravel:
 
-1. Hacer fork, a su cuenta de GitHub, de cada repositorio de la tabla del final.
-2. Leer el spec en [`test-manager-library-3413974-docs`](https://github.com/code-sena/test-manager-library-3413974-docs).
-   Se entrega en dos versiones: `spec-python/` y `spec-.net/`.
-3. Desarrollar en los forks.
+* **Separación de capas e inmutabilidad:**
+  * **Adaptadores de entrada (HTTP):** Controladores en `app/Http/Controllers/Api/` que manejan las peticiones REST, validan entradas y transforman los resultados al contrato JSON estricto (`snake_case`, UUID v4, fechas ISO 8601 en UTC con `Z`).
+  * **Lógica de Dominio:** Servicios y modelos que encapsulan las reglas de negocio (plazo de 14 días para préstamos, límite de 3 libros activos por socio, bloqueo de préstamos si existen libros en mora, y cálculo en tiempo de ejecución de estados y días de retraso).
+  * **Adaptadores de salida (Persistencia):** Modelos Eloquent y consultas transaccionales atómicas conectadas al esquema `library` en PostgreSQL.
+* **Art. V & ADR-001 (Propiedad del Esquema):** Todo el DDL, claves foráneas, restricciones `CHECK` e índices únicos parciales residen en las migraciones de Laravel (`database/migrations/`).
+* **Art. VI (Invariantes en el Motor):** Restricciones declaradas en base de datos:
+  * `ck_book_available_range`: `0 <= available_copies <= total_copies`
+  * `ck_book_total_positive`: `total_copies >= 1`
+  * `ck_user_role`: `role IN ('admin', 'librarian')`
+* **Art. VII (Lo derivado se calcula, no se almacena):** Ni la tabla `loan` ni `loan_item` almacenan columnas `status` o `days_late`. Los estados `open`, `overdue` y `closed` se derivan dinámicamente en tiempo de ejecución.
+* **Art. VIII & ADR-004 (Valores Congelados):** En `loan_item` se congelan `book_title`, `isbn` y `category_name` en el instante del préstamo. Esto preserva la fidelidad histórica del catálogo aunque el libro o la categoría se modifiquen posteriormente.
+* **Art. IX (Cero Secretos):** Contraseñas hasheadas con **Argon2id**; jamás se exponen hashes ni claves en logs o respuestas JSON.
+* **ADR-002 (Concurrencia Optimista):** Deducción condicional atómica en una sola transacción (`where available_copies >= 1`) con respaldo del `CHECK` a nivel de base de datos.
+* **ADR-003 (Baja Lógica):** `DELETE /books/{id}` realiza borrado lógico (`deleted_at`). Si el libro tiene préstamos abiertos, responde `409 BOOK_HAS_OPEN_LOANS`.
+* **ADR-005 (Gestión de Bibliotecarios y Compatibilidad):** Listado y baja de bibliotecarios respetando la integridad referencial (`ON DELETE RESTRICT` de préstamos históricos), y compatibilidad para subida de archivos multipart en entornos PHP.
 
-## El reto se desarrolla con React y PHP (Laravel)
+---
 
-El spec está escrito para Python y para .NET, pero el reto **no** se hace en esos lenguajes:
+## 2. Catálogo de Endpoints de la API (`/api/v1`)
 
-| Capa | Tecnología del reto |
-|---|---|
-| Frontend | React |
-| Backend | PHP con Laravel |
+Todos los endpoints (salvo `/health` y `/auth/login`) requieren autenticación mediante encabezado `Authorization: Bearer <token>`.
 
-Lo que el spec define sobre el negocio —historias, criterios de aceptación, reglas, contrato de la
-API, modelo de datos— se respeta. Lo que define sobre la tecnología se traduce a React y Laravel.
+### 2.1 Salud y Autenticación
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `GET` | `/health` | Público | Verificación de salud del servicio (`{"status": "ok"}`) |
+| `POST` | `/auth/login` | Público | Autenticación de usuario. Devuelve JWT válido por 8 horas |
 
-## La prueba no consiste en escribir el código
+### 2.2 Usuarios y Bibliotecarios (Admin)
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `GET` | `/users` | `admin` | Lista bibliotecarios activos |
+| `POST` | `/users` | `admin` | Crea un bibliotecario (`username`, `password`, `role: 'librarian'`) |
+| `DELETE` | `/users/{id}` | `admin` | Da de baja a un bibliotecario si no tiene préstamos registrados en el histórico |
 
-El propósito principal es ver la **capacidad de desempeño con SDD** (*Spec-Driven Development*,
-desarrollo guiado por especificación): cómo se lee, se interpreta y se aplica una especificación
-para llevarla a un stack distinto. El código es el medio, no el fin.
+### 2.3 Categorías y Catálogo de Libros
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `GET` | `/categories` | Autenticado | Lista las 5 categorías oficiales ordenadas por nombre |
+| `GET` | `/books` | Autenticado | Catálogo paginado con búsqueda por título/autor (`q`) y filtro por categoría |
+| `GET` | `/books/{id}` | Autenticado | Detalle de un libro específico |
+| `POST` | `/books` | `admin` | Crea un nuevo libro (ISBN-13 único, total de ejemplares ≥ 1) |
+| `PUT` | `/books/{id}` | `admin` | Modifica título, autor, categoría o total de ejemplares |
+| `DELETE` | `/books/{id}` | `admin` | Baja lógica del libro (impide baja si tiene préstamos abiertos) |
+| `GET` | `/books/{id}/cover` | Autenticado | Descarga la imagen binaria de la portada |
+| `PUT/POST` | `/books/{id}/cover` | `admin` | Sube la portada (JPG/PNG, máx. 2 MB; admite PUT directo o POST con spoofing) |
+| `DELETE` | `/books/{id}/cover` | `admin` | Elimina la portada del libro |
 
-## Feria de presentación
+### 2.4 Socios
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `GET` | `/members` | Autenticado | Lista y búsqueda de socios con paginación |
+| `GET` | `/members/{id}` | Autenticado | Detalle del socio incluyendo conteo de `active_loans` |
+| `POST` | `/members` | Autenticado | Registra un nuevo socio con documento único |
 
-Al cerrar la prueba (3:00 p. m.) cada aprendiz **presenta su proyecto** al grupo: qué construyó del spec, qué dejó fuera y por qué,
-y una demostración corta de lo que funciona (la aplicación y el sitio público). Lo que se presenta es lo que quedó **subido a los forks
-antes de las 3:00 p. m.**: no se presenta nada que no esté en GitHub.
+### 2.5 Préstamos y Devoluciones
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `POST` | `/loans` | Autenticado | Registra préstamo de 1 a 3 líneas con validación de límite y mora |
+| `GET` | `/loans` | Autenticado | Lista préstamos con filtros, incluyendo datos enriquecidos del socio |
+| `GET` | `/loans/{id}` | Autenticado | Detalle completo del préstamo con líneas, estados y socio solicitante |
+| `POST` | `/loans/{id}/items/{item_id}/return` | Autenticado | Devolución atómica de una línea del préstamo |
+| `GET` | `/loans/overdue` | Autenticado | Lista de líneas vencidas ordenadas por días de retraso |
 
-## Los seis repositorios
+### 2.6 Reportes
+| Método | Ruta | Acceso | Descripción |
+|---|---|---|---|
+| `GET` | `/reports/most-borrowed` | `admin` | Reporte de libros más prestados por rango de fechas (congelación histórica) |
 
-| Repositorio | Qué va ahí |
-|---|---|
-| [`test-manager-library-3413974-docs`](https://github.com/code-sena/test-manager-library-3413974-docs) | El spec: `spec-python/` y `spec-.net/` |
-| [`test-manager-library-3413974-api`](https://github.com/code-sena/test-manager-library-3413974-api) | Backend en PHP (Laravel) |
-| [`test-manager-library-3413974-app`](https://github.com/code-sena/test-manager-library-3413974-app) | Frontend en React |
-| [`test-manager-library-3413974-page`](https://github.com/code-sena/test-manager-library-3413974-page) | Sitio público estático de presentación |
-| [`test-manager-library-3413974-infra`](https://github.com/code-sena/test-manager-library-3413974-infra) | Contenedores, red, volúmenes y motor de base de datos vacío |
-| [`test-manager-library-3413974-tool`](https://github.com/code-sena/test-manager-library-3413974-tool) | Utilidades: sembrador de datos de demostración |
+---
+
+## 3. Manejo de Errores Unificado
+
+Todos los errores del sistema responden bajo la estructura estricta del contrato:
+
+```json
+{
+  "code": "BOOK_NOT_AVAILABLE",
+  "message": "No quedan ejemplares disponibles de «Cien años de soledad».",
+  "details": [
+    { "field": "items[0].book_id", "issue": "sin ejemplares" }
+  ]
+}
+```
+
+Códigos de negocio implementados:
+* `INVALID_CREDENTIALS` (401), `FORBIDDEN_ROLE` (403), `NOT_FOUND` (404)
+* `USERNAME_TAKEN` (409), `ISBN_TAKEN` (409), `DOCUMENT_TAKEN` (409)
+* `BOOK_HAS_OPEN_LOANS` (409), `BOOK_NOT_AVAILABLE` (409), `MEMBER_HAS_OVERDUE` (409), `ITEM_ALREADY_RETURNED` (409), `FORBIDDEN_OPERATION` (409)
+* `MEMBER_LIMIT_EXCEEDED` (422), `DUPLICATE_BOOK_IN_LOAN` (422), `INVALID_DATE_RANGE` (422), `VALIDATION_ERROR` (422).
+
+---
+
+## 4. Ejecución y Pruebas
+
+### Vía Docker Compose (Recomendado):
+El servicio corre en el contenedor `library_api` en el puerto `8000`:
+```bash
+docker compose -f test-manager-library-3413974-infra/docker-compose.yml up -d --build api
+```
+
+### Ejecutar Pruebas Automatizadas:
+```bash
+docker compose -f test-manager-library-3413974-infra/docker-compose.yml exec api php artisan test
+```
